@@ -1,4 +1,3 @@
-import torch
 from diffusers import UNet2DModel, DDPMScheduler
 from config import IMAGE_SIZE, NUM_TIMESTEPS
 

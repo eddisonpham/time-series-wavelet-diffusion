@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import torch
+import os
 from torch.utils.data import Dataset
 from config import CSV_PATH, COLUMN, WINDOW_SIZE, STRIDE
 from transforms.wavelet import timeseries_to_scalogram
@@ -8,6 +8,7 @@ from transforms.wavelet import timeseries_to_scalogram
 
 class HistDataDataset(Dataset):
     def __init__(self):
+        self.windows = []
         if not os.path.exists(CSV_PATH):
             raise FileNotFoundError(f"CSV file not found: {CSV_PATH}")
         df = pd.read_csv(CSV_PATH)
@@ -26,5 +27,4 @@ class HistDataDataset(Dataset):
 
     def __getitem__(self, idx):
         signal = self.windows[idx]
-        img = timeseries_to_scalogram(signal)
-        return img
+        return signal
