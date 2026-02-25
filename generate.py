@@ -6,7 +6,10 @@ from models.diffusion import create_model
 
 def generate():
     model, scheduler = create_model()
-    model.load_state_dict(torch.load(f"{SAVE_DIR}/model_epoch_{EPOCHS-1}.pt"))
+    checkpoint_path = f"{SAVE_DIR}/model_epoch_{EPOCHS-1}.pt"
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    model.load_state_dict(torch.load(checkpoint_path))
     model.to(DEVICE)
     model.eval()
 
