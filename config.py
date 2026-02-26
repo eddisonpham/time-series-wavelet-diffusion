@@ -1,11 +1,5 @@
 import torch
 
-# Data
-CSV_PATH = "data/eurusd.csv"  # export from histdata
-COLUMN = "Close"
-WINDOW_SIZE = 256
-STRIDE = 64
-
 # Wavelet
 WAVELET = "morl"
 SCALES = 128
@@ -20,4 +14,11 @@ LR = 1e-4
 NUM_TIMESTEPS = 1000
 SAVE_DIR = "./checkpoints"
 
+# Data
+CSV_PATH = "data/index_time_series.csv"
+COLUMN = "Close"
+WINDOW_SIZE = 256
+STRIDE = 64
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+

@@ -55,10 +55,8 @@ def create_ohlc(prices):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--pair", type=str, default="EURUSD")
     parser.add_argument("--year", type=int, default=2022)
     parser.add_argument("--month", type=int, default=1)
-
     parser.add_argument("--days", type=int, default=30)
 
     parser.add_argument("--mu", type=float, default=0.05)
@@ -94,7 +92,7 @@ def main():
 
     os.makedirs("data", exist_ok=True)
 
-    output_path = f"data/{args.pair.upper()}_{args.year}_{args.month:02d}_M1.csv"
+    output_path = f"data/index_time_series.csv"
     df.to_csv(output_path, index=False)
 
     print(f"Synthetic Merton Jump Diffusion data saved to: {output_path}")
