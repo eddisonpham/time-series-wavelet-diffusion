@@ -17,7 +17,9 @@ export default function DataPanel() {
     try {
       const { data } = await axios.get('/api/data')
       setRuns(data)
-    } catch {}
+    } catch {
+      console.error('Error fetching data runs')
+    }
   }
 
   useEffect(() => { fetchRuns() }, [])

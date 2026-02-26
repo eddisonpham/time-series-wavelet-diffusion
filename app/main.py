@@ -1,15 +1,15 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
 import subprocess
 import sys
 import os
 import json
 import time
+import threading
 import asyncio
+import shutil
 from datetime import datetime
 
 from app.database import init_db, get_session
@@ -87,7 +87,7 @@ def generate_data(params: DataParams):
         "--jump_mean", str(params.jump_mean),
         "--jump_std", str(params.jump_std),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=BASE_DIR)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=BASE_DIR, timeout=300)
 
     rows = 0
     for line in result.stdout.splitlines():
@@ -116,10 +116,25 @@ def list_data_runs():
 
 # ─── Training ─────────────────────────────────────────────────────────────────
 
+training_jobs_lock = threading.Lock()
 training_jobs: dict[int, dict] = {}
+
+def set_training_job(run_id: int, job: dict):
+    with training_jobs_lock:
+        training_jobs[run_id] = job
+
+def get_training_job(run_id: int):
+    with training_jobs_lock:
+        return training_jobs.get(run_id)
+
+def update_training_job_status(run_id: int, status: str):
+    with training_jobs_lock:
+        if run_id in training_jobs:
+            training_jobs[run_id]["status"] = status
 
 def run_training(run_id: int, params: dict):
     log_path = os.path.join(BASE_DIR, "logs", f"train_{run_id}.log")
+    save_dir = os.path.join(BASE_DIR, "checkpoints", f"run_{run_id}")
     env = os.environ.copy()
     env.update({
         "WAVEDIFF_WINDOW_SIZE": str(params["window_size"]),
@@ -131,30 +146,36 @@ def run_training(run_id: int, params: dict):
         "WAVEDIFF_EPOCHS": str(params["epochs"]),
         "WAVEDIFF_LR": str(params["lr"]),
         "WAVEDIFF_NUM_TIMESTEPS": str(params["num_timesteps"]),
-        "WAVEDIFF_SAVE_DIR": os.path.join(BASE_DIR, "checkpoints", f"run_{run_id}"),
+        "WAVEDIFF_SAVE_DIR": save_dir,
     })
 
-    training_jobs[run_id] = {"status": "running", "log_path": log_path}
+    set_training_job(run_id, {"status": "running", "log_path": log_path})
 
-    with open(log_path, "w") as f:
+    with open(log_path, "w") as f, get_session() as session:
         proc = subprocess.Popen(
             [sys.executable, os.path.join(BASE_DIR, "train.py")],
             stdout=f, stderr=subprocess.STDOUT,
             env=env, cwd=BASE_DIR
         )
-        training_jobs[run_id]["pid"] = proc.pid
+        # Store PID in DB for lifecycle management
+        run = session.get(TrainRun, run_id)
+        run.pid = proc.pid
+        run.save_dir = save_dir
+        run.log_path = log_path
+        session.commit()
+
+        with training_jobs_lock:
+            training_jobs[run_id]["pid"] = proc.pid
+
         proc.wait()
         status = "success" if proc.returncode == 0 else "failed"
 
-    training_jobs[run_id]["status"] = status
-    with get_session() as session:
         run = session.get(TrainRun, run_id)
         run.status = status
         session.commit()
 
 @app.post("/api/train")
 def start_training(params: TrainParams, background_tasks: BackgroundTasks):
-    save_dir = os.path.join(BASE_DIR, "checkpoints", f"run_{{id}}")
     with get_session() as session:
         run = TrainRun(
             created_at=datetime.utcnow(),
@@ -176,7 +197,7 @@ def start_training(params: TrainParams, background_tasks: BackgroundTasks):
     return {"id": run_id, "status": "pending"}
 
 @app.get("/api/train/{run_id}/logs")
-async def stream_logs(run_id: int):
+async def stream_logs(run_id: int, request: Request):
     with get_session() as session:
         run = session.get(TrainRun, run_id)
         if not run:
@@ -185,7 +206,15 @@ async def stream_logs(run_id: int):
 
     async def event_stream():
         pos = 0
+        timeout = 60  # seconds
+        elapsed = 0
+        sleep_interval = 0.5
+
         while True:
+            # Check for client disconnect
+            if await request.is_disconnected():
+                break
+
             if os.path.exists(log_path):
                 with open(log_path, "r") as f:
                     f.seek(pos)
@@ -194,12 +223,17 @@ async def stream_logs(run_id: int):
                         pos += len(chunk.encode())
                         for line in chunk.splitlines():
                             yield f"data: {json.dumps({'line': line})}\n\n"
-
-            job = training_jobs.get(run_id)
+                        elapsed = 0  # reset timer on new data
+            job = get_training_job(run_id)
             if job and job["status"] in ("success", "failed"):
                 yield f"data: {json.dumps({'done': True, 'status': job['status']})}\n\n"
                 break
-            await asyncio.sleep(0.5)
+
+            await asyncio.sleep(sleep_interval)
+            elapsed += sleep_interval
+            if elapsed > timeout:
+                yield f"data: {json.dumps({'done': True, 'status': 'timeout'})}\n\n"
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -209,7 +243,7 @@ def list_train_runs():
         runs = session.query(TrainRun).order_by(TrainRun.created_at.desc()).all()
         result = []
         for r in runs:
-            job = training_jobs.get(r.id)
+            job = get_training_job(r.id)
             status = job["status"] if job else r.status
             result.append({
                 "id": r.id,
@@ -227,7 +261,7 @@ def get_train_run(run_id: int):
         run = session.get(TrainRun, run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Not found")
-        job = training_jobs.get(run_id)
+        job = get_training_job(run_id)
         status = job["status"] if job else run.status
         return {
             "id": run.id,
@@ -298,8 +332,10 @@ def list_generations():
             "status": g.status
         } for g in gens]
 
-@app.get("/api/image/{filename}")
 def get_image(filename: str):
+    # Sanitize filename to prevent path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     path = os.path.join(BASE_DIR, "generated", filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404)
@@ -310,6 +346,27 @@ def delete_train_run(run_id: int):
     with get_session() as session:
         run = session.get(TrainRun, run_id)
         if run:
+            # Delete associated GenerationRun entries and generated images
+            gens = session.query(GenerationRun).filter(GenerationRun.train_run_id == run_id).all()
+            for g in gens:
+                image_path = os.path.join(BASE_DIR, "generated", g.image_filename)
+                if os.path.exists(image_path):
+                    try:
+                        os.remove(image_path)
+                    except Exception:
+                        pass
+                session.delete(g)
+            # Remove run artifacts
+            if getattr(run, "save_dir", None) and os.path.exists(run.save_dir):
+                try:
+                    shutil.rmtree(run.save_dir)
+                except Exception:
+                    pass
+            if getattr(run, "log_path", None) and os.path.exists(run.log_path):
+                try:
+                    os.remove(run.log_path)
+                except Exception:
+                    pass
             session.delete(run)
             session.commit()
     return {"ok": True}

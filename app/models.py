@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -27,7 +27,8 @@ class GenerationRun(Base):
     __tablename__ = "generation_runs"
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(DateTime)
-    train_run_id = Column(Integer)
+    train_run_id = Column(Integer, ForeignKey("train_runs.id", ondelete="CASCADE"))
     image_path = Column(String)
     image_filename = Column(String)
     status = Column(String)
+    train_run = relationship("TrainRun", backref="generation_runs", passive_deletes=True)

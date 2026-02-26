@@ -56,9 +56,15 @@ export default function TrainPanel() {
           fetchRuns()
         }
       }
-      evs.onerror = () => {
+      evs.onerror = (err) => {
         setLoading(false)
-        evs.close()
+        try {
+          if (evs.readyState !== EventSource.CLOSED) {
+            evs.close()
+          }
+        } catch (closeErr) {
+          console.error('Error closing SSE connection:', closeErr)
+        }
         fetchRuns()
       }
     } catch (e) {
