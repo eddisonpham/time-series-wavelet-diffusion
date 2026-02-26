@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+*.txt
+!requirements.txt
+*.csv
+*.pt
