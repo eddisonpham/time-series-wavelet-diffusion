@@ -1,208 +1,183 @@
 # Time-Series Diffusion via Wavelet Scalograms
 
-This project trains a DDPM (Denoising Diffusion Probabilistic Model) on time-series data by:
+A PyTorch/HuggingFace-based implementation of diffusion models for generating synthetic financial time-series in the wavelet scalogram domain.
 
-1. Converting 1D financial time-series into 2D wavelet scalograms
-2. Training a 2D diffusion UNet on those scalogram images
-3. Generating new synthetic scalograms from noise
+---
 
-The model is implemented using HuggingFace diffusers.
+## 📈 Approach
 
-------------------------------------------------------------
-ARCHITECTURE OVERVIEW
-------------------------------------------------------------
+This project trains a **Denoising Diffusion Probabilistic Model (DDPM)** to take windows of 1D time-series data, transform them into 2D wavelet scalograms, and learn to generate new examples in this space.
 
-Time Series (1D)
-        ↓
-Continuous Wavelet Transform (CWT)
-        ↓
-Scalogram (S × T)
-        ↓
-Resize → 1×H×W tensor
-        ↓
-UNet2D + DDPM Scheduler
-        ↓
-Generated Scalogram
+**Pipeline:**
+1. **1D Time-Series** →  
+2. **Continuous Wavelet Transform (CWT)** →  
+3. **Scalogram (S×T)** →  
+4. **Resize to 1×H×W tensor** →  
+5. **UNet2DModel + DDPM Scheduler** →  
+6. **Generated Synthetic Scalogram**
 
-Model:
-- UNet2DModel
-- DDPMScheduler
-- MSE noise prediction objective
+- **Model:**  
+  - `UNet2DModel` (from Hugging Face Diffusers)  
+  - `DDPMScheduler`  
+  - MSE noise prediction objective
 
-------------------------------------------------------------
-PROJECT STRUCTURE
-------------------------------------------------------------
+---
 
+## 🗂️ Project Structure
+
+```
 ts_diffusion_wavelet/
-
-├── requirements.txt
-├── config.py
-├── train.py
-├── generate.py
+├── requirements.txt   # Dependencies
+├── config.py          # Hyperparameter & path config
+├── train.py           # Training script
+├── generate.py        # Synthetic data generation
 │
 ├── data/
-│   └── dataset.py
+│   └── dataset.py     # Time-series to sliding window dataset
 │
 ├── transforms/
-│   └── wavelet.py
+│   └── wavelet.py     # CWT & scalogram transforms
 │
 ├── models/
-│   └── diffusion.py
+│   └── diffusion.py   # Model and diffusion scheduler construction
 │
 └── utils/
-    └── inverse.py
+    └── inverse.py     # (Optional) Inverse CWT utility
+```
 
-------------------------------------------------------------
-1. INSTALLATION
-------------------------------------------------------------
+---
+
+## 1️⃣ Installation
 
 Create a virtual environment and install dependencies:
 
+```bash
 pip install -r requirements.txt
+```
 
-Requirements:
 - Python 3.9+
-- CUDA GPU recommended
+- CUDA GPU recommended for training
 
-------------------------------------------------------------
-2. PREPARE DATA (HISTDATA)
-------------------------------------------------------------
+---
 
-1. Download historical data from:
-   https://www.histdata.com/
+## 2️⃣ Data Preparation
 
-2. Export as CSV.
+1. **Download historical data**:  
+   [https://www.histdata.com/](https://www.histdata.com/)
 
-3. Place the CSV at:
+2. **Export as CSV**.
+3. **Place CSV file at**:  
+   `data/eurusd.csv`
+4. **Ensure it contains a `"Close"` column**.  
+   If not, update `COLUMN` in `config.py`.
 
-data/eurusd.csv
+---
 
-4. Ensure it contains a "Close" column.
-   If not, modify COLUMN in config.py.
+## 3️⃣ Configure Training
 
-------------------------------------------------------------
-3. CONFIGURE TRAINING
-------------------------------------------------------------
+Key configuration (`config.py`):
 
-Edit config.py:
-
+```python
 CSV_PATH = "data/eurusd.csv"
 COLUMN = "Close"
-
 WINDOW_SIZE = 256
 STRIDE = 64
-
 WAVELET = "morl"
 SCALES = 128
-
 IMAGE_SIZE = 128
-
 BATCH_SIZE = 16
 EPOCHS = 10
 LR = 1e-4
+```
 
-Important parameters:
+**Key Parameters:**
 
-- WINDOW_SIZE: length of time-series segment
-- STRIDE: sliding window overlap
-- SCALES: wavelet resolution
-- IMAGE_SIZE: scalogram resize dimension
+- `WINDOW_SIZE`: Length of sliding time-series window
+- `STRIDE`: Step for window overlap
+- `SCALES`: Number of CWT scales
+- `IMAGE_SIZE`: Output scalogram size (pixels)
 
-------------------------------------------------------------
-4. TRAINING
-------------------------------------------------------------
+---
 
-Run:
+## 4️⃣ Training
 
+Run training:
+
+```bash
 python train.py
+```
 
 This will:
-
-- Load CSV
-- Create sliding windows
+- Load & normalize data from CSV
+- Form overlapping windows
 - Convert each window to a scalogram
 - Train a DDPM model
-- Save checkpoints to:
+- Save checkpoints to: `./checkpoints/model_epoch_X.pt`
 
-./checkpoints/model_epoch_X.pt
+---
 
-------------------------------------------------------------
-5. GENERATE SYNTHETIC SCALOGRAMS
-------------------------------------------------------------
+## 5️⃣ Generation
 
-After training:
+After training, generate a synthetic scalogram:
 
+```bash
 python generate.py
+```
 
-This will:
+- Loads the latest model checkpoint
+- Samples from noise and denoises with DDPM
+- Displays the resulting scalogram
 
-- Load the last checkpoint
-- Sample from pure Gaussian noise
-- Iteratively denoise
-- Display the generated scalogram
+---
 
-------------------------------------------------------------
-6. WHAT THE MODEL LEARNS
-------------------------------------------------------------
+## 6️⃣ What Does the Model Learn?
 
-The diffusion model learns:
+- Approximates the probability distribution `p(scalogram)`
+- **Does *not* directly learn `p(time_series)`**
+- Captures:
+  - Multi-scale temporal patterns
+  - Frequency structure
+  - Cross-scale dependencies (through attention blocks)
 
-p(scalogram)
+---
 
-It does NOT directly learn:
+## 7️⃣ (Optional) Inverse Mapping to Time-Series
 
-p(time_series)
+To attempt reconstruction back to 1D time-series:
+- Apply inverse CWT (**see:** `utils/inverse.py`)
+- Note: Accurate inversion requires handling wavelet phase, which may not be perfectly possible for real-valued scalograms.
 
-The learned distribution captures:
+_This project currently outputs scalograms only._
 
-- Multi-scale temporal patterns
-- Frequency structure
-- Cross-scale dependencies (via attention layers)
+---
 
-------------------------------------------------------------
-7. CONVERTING BACK TO TIME-SERIES (OPTIONAL)
-------------------------------------------------------------
+## 8️⃣ Extensions & Ideas
 
-To reconstruct time-series from generated scalograms:
+- Try `UNet1DModel` for direct 1D diffusion modeling
+- Add conditioning (e.g., regimes or labels)
+- Swap DDPM for DDIM or DPM-Solver for faster sampling
+- SDE-based diffusion models
+- Train on log-returns instead of raw prices
+- Add evaluation metrics (ACF, PSD, Hurst exponent, etc.)
 
-- Use inverse CWT
-- Requires careful handling of phase information
-- May not be perfectly invertible unless complex coefficients are preserved
+---
 
-This project currently generates scalograms only.
+## 9️⃣ Hardware Notes
 
-------------------------------------------------------------
-8. EXTENDING THE PROJECT
-------------------------------------------------------------
+- **GPU strongly recommended.**
+- For CPU training:
+  - Consider reducing `IMAGE_SIZE`, `BATCH_SIZE`, or diffusion `NUM_TIMESTEPS` for faster runtime.
 
-Possible improvements:
+---
 
-- Use UNet1DModel for direct 1D diffusion
-- Add conditional diffusion (e.g., regime conditioning)
-- Replace DDPM with DDIM or DPM-Solver
-- Add SDE-based diffusion
-- Train on log returns instead of raw prices
-- Add evaluation metrics (ACF, PSD, Hurst exponent)
+## 📝 Summary
 
-------------------------------------------------------------
-9. HARDWARE NOTES
-------------------------------------------------------------
+This repository provides:
 
-GPU strongly recommended.
+- Wavelet-based time-frequency representation of financial data
+- 2D UNet diffusion architecture with attention
+- End-to-end synthesis of new (realistic) time-series patterns in scalogram space
 
-If running on CPU:
-- Reduce IMAGE_SIZE
-- Reduce BATCH_SIZE
-- Reduce NUM_TIMESTEPS
-
-------------------------------------------------------------
-SUMMARY
-------------------------------------------------------------
-
-This repository implements:
-
-- Wavelet-based time-frequency representation
-- 2D attention UNet diffusion model
-- End-to-end synthetic time-series structure generation
-
-It leverages image diffusion architectures for financial time-series modeling.
+Leverages generative image models for advanced time-series structure modeling.
+  
+---
