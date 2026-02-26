@@ -1,12 +1,19 @@
-torch>=2.0
-diffusers>=0.25.0
+# ML / Wavelet
+torch
+diffusers
 transformers
 accelerate
-datasets
+PyWavelets
+scipy
 numpy
 pandas
 matplotlib
-pywavelets
-Pillow
-scikit-learn
+
+# API / Backend
+fastapi
+uvicorn[standard]
+sqlalchemy
+python-multipart
+
+# Utilities
 tqdm

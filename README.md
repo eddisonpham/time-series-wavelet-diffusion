@@ -1,25 +1,20 @@
-# Time-Series Diffusion via Wavelet Scalograms
+# WaveDiff — Wavelet Diffusion Studio
 
-A PyTorch/HuggingFace-based implementation of diffusion models for generating synthetic financial time-series in the wavelet scalogram domain.
+A full-stack platform for generating synthetic financial time-series via **Denoising Diffusion Probabilistic Models (DDPM)** operating in the wavelet scalogram domain. Includes a React UI, FastAPI backend, and SQLite run database.
 
 ---
 
 ## 📈 Approach
 
-This project trains a **Denoising Diffusion Probabilistic Model (DDPM)** to take windows of 1D time-series data, transform them into 2D wavelet scalograms, and learn to generate new examples in this space.
+Trains a DDPM to learn the distribution of 2D wavelet scalograms derived from 1D financial time-series windows.
 
 **Pipeline:**
-1. **1D Time-Series** →  
-2. **Continuous Wavelet Transform (CWT)** →  
-3. **Scalogram (S×T)** →  
-4. **Resize to 1×H×W tensor** →  
-5. **UNet2DModel + DDPM Scheduler** →  
-6. **Generated Synthetic Scalogram**
-
-- **Model:**  
-  - `UNet2DModel` (from Hugging Face Diffusers)  
-  - `DDPMScheduler`  
-  - MSE noise prediction objective
+1. **Synthetic Data** — Merton Jump Diffusion price simulation
+2. **Sliding Windows** — overlapping 1D time-series chunks
+3. **CWT** — Continuous Wavelet Transform → 2D scalogram (S×T)
+4. **Resize** → `1×H×W` tensor
+5. **UNet2DModel + DDPMScheduler** — MSE noise prediction
+6. **Generated Scalogram** — PNG output, stored and viewable in the UI
 
 ---
 
@@ -27,157 +22,185 @@ This project trains a **Denoising Diffusion Probabilistic Model (DDPM)** to take
 
 ```
 ts_diffusion_wavelet/
-├── requirements.txt   # Dependencies
-├── config.py          # Hyperparameter & path config
-├── train.py           # Training script
-├── generate.py        # Synthetic data generation
+├── start.sh               # One-command startup (backend + frontend)
+├── requirements.txt       # Python dependencies
+├── config.py              # Hyperparams — reads from env vars (UI-overridable)
+├── train.py               # Training script with live log streaming
+├── generate.py            # Scalogram generation — saves PNG (no plt.show)
+├── data_downloader.py     # Merton Jump Diffusion data generator
+│
+├── app/                   # FastAPI backend
+│   ├── main.py            # API routes: /data, /train, /generate, /image
+│   ├── database.py        # SQLite engine + session context manager
+│   └── models.py          # SQLAlchemy tables: DataRun, TrainRun, GenerationRun
+│
+├── frontend/              # React + Vite UI
+│   ├── vite.config.js     # Proxies /api → localhost:8000
+│   └── src/
+│       ├── App.jsx        # Sidebar layout + tab routing
+│       ├── globals.css    # Design system (dark, amber accent)
+│       └── components/
+│           ├── DataPanel.jsx     # MJD param sliders, data generation
+│           ├── TrainPanel.jsx    # Hyperparams, live log terminal
+│           ├── GeneratePanel.jsx # Run generation, scalogram viewer + gallery
+│           └── HistoryPanel.jsx  # All runs, image gallery, stats
 │
 ├── data/
-│   └── dataset.py     # Time-series to sliding window dataset
-│
-├── transforms/
-│   └── wavelet.py     # CWT & scalogram transforms
-│
+│   └── dataset.py         # Sliding window dataset + CWT transform
 ├── models/
-│   └── diffusion.py   # Model and diffusion scheduler construction
-│
+│   └── diffusion.py       # UNet2DModel + DDPMScheduler construction
+├── transforms/
+│   └── wavelet.py         # CWT & scalogram utilities
 └── utils/
-    └── inverse.py     # (Optional) Inverse CWT utility
+    └── inverse.py         # (Optional) inverse CWT
 ```
 
 ---
 
 ## 1️⃣ Installation
 
-Create a virtual environment and install dependencies:
+**Requirements:** Python 3.9+, Node.js 18+. CUDA GPU strongly recommended.
 
 ```bash
+# Python dependencies
 pip install -r requirements.txt
+
+# Frontend dependencies
+cd frontend && npm install && cd ..
 ```
 
-- Python 3.9+
-- CUDA GPU recommended for training
+---
+
+## 2️⃣ Data Generation
+
+Synthetic OHLCV data is generated via **Merton Jump Diffusion** — no external data source required.
+
+```bash
+python data_downloader.py --days 30 --mu 0.05 --sigma 0.2 --lam 0.1
+```
+
+**Parameters:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--days` | Simulation length (minutes = days × 1440) | `30` |
+| `--mu` | Drift | `0.05` |
+| `--sigma` | Volatility | `0.2` |
+| `--lam` | Jump intensity | `0.1` |
+| `--jump_mean` | Mean jump size | `-0.02` |
+| `--jump_std` | Jump size std | `0.1` |
+| `--year`, `--month` | Simulation start date | `2022`, `1` |
+
+Output: `data/index_time_series.csv`
 
 ---
 
-## 2️⃣ Data Preparation
+## 3️⃣ Configuration
 
-1. **Download historical data**:  
-   [https://www.histdata.com/](https://www.histdata.com/)
-
-2. **Export as CSV**.
-3. **Place CSV file at**:  
-   `data/eurusd.csv`
-4. **Ensure it contains a `"Close"` column**.  
-   If not, update `COLUMN` in `config.py`.
-
----
-
-## 3️⃣ Configure Training
-
-Key configuration (`config.py`):
+All parameters in `config.py` are **overridable via environment variables**, which is how the UI controls them per-run:
 
 ```python
-CSV_PATH = "data/eurusd.csv"
-COLUMN = "Close"
-WINDOW_SIZE = 256
-STRIDE = 64
-WAVELET = "morl"
-SCALES = 128
-IMAGE_SIZE = 128
-BATCH_SIZE = 16
-EPOCHS = 10
-LR = 1e-4
+WAVELET      = os.environ.get("WAVEDIFF_WAVELET", "morl")
+IMAGE_SIZE   = int(os.environ.get("WAVEDIFF_IMAGE_SIZE", 128))
+BATCH_SIZE   = int(os.environ.get("WAVEDIFF_BATCH_SIZE", 16))
+EPOCHS       = int(os.environ.get("WAVEDIFF_EPOCHS", 10))
+LR           = float(os.environ.get("WAVEDIFF_LR", 1e-4))
+NUM_TIMESTEPS = int(os.environ.get("WAVEDIFF_NUM_TIMESTEPS", 1000))
+WINDOW_SIZE  = int(os.environ.get("WAVEDIFF_WINDOW_SIZE", 256))
+STRIDE       = int(os.environ.get("WAVEDIFF_STRIDE", 64))
+SAVE_DIR     = os.environ.get("WAVEDIFF_SAVE_DIR", "./checkpoints")
 ```
-
-**Key Parameters:**
-
-- `WINDOW_SIZE`: Length of sliding time-series window
-- `STRIDE`: Step for window overlap
-- `SCALES`: Number of CWT scales
-- `IMAGE_SIZE`: Output scalogram size (pixels)
 
 ---
 
-## 4️⃣ Training
-
-Run training:
+## 4️⃣ Running the Platform
 
 ```bash
+chmod +x start.sh
+./start.sh
+```
+
+This starts:
+- **FastAPI backend** → `http://localhost:8000` (auto-reload)
+- **Vite frontend** → `http://localhost:5173`
+- **API docs** → `http://localhost:8000/docs`
+
+Or run manually:
+```bash
+# Terminal 1
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2
+cd frontend && npm run dev
+```
+
+---
+
+## 5️⃣ UI Workflow
+
+The UI exposes the full pipeline across four panels:
+
+**Data** → configure MJD params with sliders, generate CSV, view run history.
+
+**Train** → set all hyperparameters, launch training, watch a live log terminal streaming directly from the subprocess. Each run is saved in SQLite with its own checkpoint directory.
+
+**Generate** → select any successful training run, click generate, view the resulting scalogram. Supports click-to-expand lightbox and a thumbnail gallery of all past generations.
+
+**History** → tabbed view of all data runs, training runs, and generated images with summary stats.
+
+---
+
+## 6️⃣ Database
+
+Uses **SQLite** (zero-config) via SQLAlchemy. DB file: `wavediff.db` (auto-created on startup).
+
+Three tables:
+
+| Table | Contents |
+|-------|----------|
+| `data_runs` | MJD params, row count, status |
+| `train_runs` | All hyperparams, epoch count, checkpoint path, status |
+| `generation_runs` | Associated train run, PNG path, status |
+
+---
+
+## 7️⃣ CLI Usage (without UI)
+
+```bash
+# Generate data
+python data_downloader.py
+
+# Train (uses config.py defaults)
 python train.py
-```
 
-This will:
-- Load & normalize data from CSV
-- Form overlapping windows
-- Convert each window to a scalogram
-- Train a DDPM model
-- Save checkpoints to: `./checkpoints/model_epoch_X.pt`
-
----
-
-## 5️⃣ Generation
-
-After training, generate a synthetic scalogram:
-
-```bash
+# Generate scalogram → saves to generated_scalogram.png
 python generate.py
+
+# Or specify output path via env
+WAVEDIFF_OUTPUT_PATH=./out.png python generate.py
 ```
 
-- Loads the latest model checkpoint
-- Samples from noise and denoises with DDPM
-- Displays the resulting scalogram
+---
+
+## 8️⃣ What the Model Learns
+
+- Approximates `p(scalogram)` — not `p(time_series)` directly
+- Captures multi-scale temporal patterns, frequency structure, and cross-scale dependencies via UNet attention blocks
+- Inverse CWT to 1D is possible but imperfect — see `utils/inverse.py`
 
 ---
 
-## 6️⃣ What Does the Model Learn?
+## 9️⃣ Extensions
 
-- Approximates the probability distribution `p(scalogram)`
-- **Does *not* directly learn `p(time_series)`**
-- Captures:
-  - Multi-scale temporal patterns
-  - Frequency structure
-  - Cross-scale dependencies (through attention blocks)
-
----
-
-## 7️⃣ (Optional) Inverse Mapping to Time-Series
-
-To attempt reconstruction back to 1D time-series:
-- Apply inverse CWT (**see:** `utils/inverse.py`)
-- Note: Accurate inversion requires handling wavelet phase, which may not be perfectly possible for real-valued scalograms.
-
-_This project currently outputs scalograms only._
-
----
-
-## 8️⃣ Extensions & Ideas
-
-- Try `UNet1DModel` for direct 1D diffusion modeling
-- Add conditioning (e.g., regimes or labels)
-- Swap DDPM for DDIM or DPM-Solver for faster sampling
-- SDE-based diffusion models
+- `UNet1DModel` for direct 1D diffusion
+- Conditioning on market regimes or volatility labels
+- Swap DDPMScheduler for DDIM / DPM-Solver for faster sampling
+- Evaluation metrics: ACF, PSD, Hurst exponent
 - Train on log-returns instead of raw prices
-- Add evaluation metrics (ACF, PSD, Hurst exponent, etc.)
+- SDE-based diffusion (score matching)
 
 ---
 
-## 9️⃣ Hardware Notes
+## 🖥️ Hardware
 
-- **GPU strongly recommended.**
-- For CPU training:
-  - Consider reducing `IMAGE_SIZE`, `BATCH_SIZE`, or diffusion `NUM_TIMESTEPS` for faster runtime.
-
----
-
-## 📝 Summary
-
-This repository provides:
-
-- Wavelet-based time-frequency representation of financial data
-- 2D UNet diffusion architecture with attention
-- End-to-end synthesis of new (realistic) time-series patterns in scalogram space
-
-Leverages generative image models for advanced time-series structure modeling.
-  
----
+GPU strongly recommended. For CPU, reduce `IMAGE_SIZE` (e.g. 64), `BATCH_SIZE` (4–8), and `NUM_TIMESTEPS` (200–500) in the UI or via env vars.
