@@ -1,6 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 from config import *
+import os
 from models.diffusion import create_model
 
 
