@@ -1,6 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
-from config import *
+from config import SAVE_DIR, EPOCHS, DEVICE, IMAGE_SIZE, NUM_TIMESTEPS
 import os
 from models.diffusion import create_model
 
@@ -10,7 +10,7 @@ def generate():
     checkpoint_path = f"{SAVE_DIR}/model_epoch_{EPOCHS-1}.pt"
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-    model.load_state_dict(torch.load(checkpoint_path))
+    model.load_state_dict(torch.load(checkpoint_path), map_location=DEVICE)
     model.to(DEVICE)
     model.eval()
 

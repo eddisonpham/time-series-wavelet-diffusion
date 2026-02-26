@@ -18,8 +18,12 @@ class HistDataDataset(Dataset):
 
         for i in range(0, len(series) - WINDOW_SIZE, STRIDE):
             window = series[i:i + WINDOW_SIZE]
-            window = (window - window.mean()) / (window.std() + 1e-8)
-            scalogram = timeseries_to_scalogram(window)
+            std = window.std()
+            if std == 0:
+                normalized_window = np.zeros_like(window)
+            else:
+                normalized_window = (window - window.mean()) / (std + 1e-8)
+            scalogram = timeseries_to_scalogram(normalized_window)
             self.windows.append(scalogram)
 
     def __len__(self):

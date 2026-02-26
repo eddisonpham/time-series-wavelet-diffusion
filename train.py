@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os
 
-from config import *
+from config import BATCH_SIZE, DEVICE, EPOCHS, LR, SAVE_DIR
 from data.dataset import HistDataDataset
 from models.diffusion import create_model
 
@@ -44,7 +44,7 @@ def train():
 
             pbar.set_description(f"Loss: {loss.item():.4f}")
 
-        torch.save(model.state_dict(), f"{SAVE_DIR}/model_epoch_{epoch}.pt")
+        torch.save(model.state_dict(), f"{SAVE_DIR}/model_epoch_{epoch}.pt", _use_new_zipfile_serialization=True)
 
 
 if __name__ == "__main__":
